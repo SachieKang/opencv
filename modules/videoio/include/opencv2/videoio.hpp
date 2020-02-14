@@ -108,7 +108,8 @@ enum VideoCaptureAPIs {
        CAP_GIGANETIX    = 1300,         //!< Smartek Giganetix GigEVisionSDK
        CAP_MSMF         = 1400,         //!< Microsoft Media Foundation (via videoInput)
        CAP_WINRT        = 1410,         //!< Microsoft Windows Runtime using Media Foundation
-       CAP_INTELPERC    = 1500,         //!< Intel Perceptual Computing SDK
+       CAP_INTELPERC    = 1500,         //!< RealSense (former Intel Perceptual Computing SDK)
+       CAP_REALSENSE    = 1500,         //!< Synonym for CAP_INTELPERC
        CAP_OPENNI2      = 1600,         //!< OpenNI2 (for Kinect)
        CAP_OPENNI2_ASUS = 1610,         //!< OpenNI2 (for Asus Xtion and Occipital Structure sensors)
        CAP_GPHOTO2      = 1700,         //!< gPhoto2 connection
@@ -136,7 +137,8 @@ enum VideoCaptureProperties {
        CAP_PROP_FPS            =5, //!< Frame rate.
        CAP_PROP_FOURCC         =6, //!< 4-character code of codec. see VideoWriter::fourcc .
        CAP_PROP_FRAME_COUNT    =7, //!< Number of frames in the video file.
-       CAP_PROP_FORMAT         =8, //!< Format of the %Mat objects returned by VideoCapture::retrieve().
+       CAP_PROP_FORMAT         =8, //!< Format of the %Mat objects (see Mat::type()) returned by VideoCapture::retrieve().
+                                   //!< Set value -1 to fetch undecoded RAW video streams (as Mat 8UC1).
        CAP_PROP_MODE           =9, //!< Backend-specific value indicating the current capture mode.
        CAP_PROP_BRIGHTNESS    =10, //!< Brightness of the image (only for those cameras that support).
        CAP_PROP_CONTRAST      =11, //!< Contrast of the image (only for cameras).
@@ -144,7 +146,8 @@ enum VideoCaptureProperties {
        CAP_PROP_HUE           =13, //!< Hue of the image (only for cameras).
        CAP_PROP_GAIN          =14, //!< Gain of the image (only for those cameras that support).
        CAP_PROP_EXPOSURE      =15, //!< Exposure (only for those cameras that support).
-       CAP_PROP_CONVERT_RGB   =16, //!< Boolean flags indicating whether images should be converted to RGB.
+       CAP_PROP_CONVERT_RGB   =16, //!< Boolean flags indicating whether images should be converted to RGB. <br/>
+                                   //!< *GStreamer note*: The flag is ignored in case if custom pipeline is used. It's user responsibility to interpret pipeline output.
        CAP_PROP_WHITE_BALANCE_BLUE_U =17, //!< Currently unsupported.
        CAP_PROP_RECTIFICATION =18, //!< Rectification flag for stereo cameras (note: only supported by DC1394 v 2.x backend currently).
        CAP_PROP_MONOCHROME    =19,
@@ -173,6 +176,7 @@ enum VideoCaptureProperties {
        CAP_PROP_CHANNEL       =43, //!< Video input or Channel Number (only for those cameras that support)
        CAP_PROP_AUTO_WB       =44, //!< enable/ disable auto white-balance
        CAP_PROP_WB_TEMPERATURE=45, //!< white-balance color temperature
+       CAP_PROP_CODEC_PIXEL_FORMAT =46,    //!< (read-only) codec's pixel format. 4-character code - see VideoWriter::fourcc . Subset of [AV_PIX_FMT_*](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/raw.c) or -1 if unknown
 #ifndef CV_DOXYGEN
        CV__CAP_PROP_LATEST
 #endif
@@ -482,6 +486,16 @@ enum { CAP_PROP_XI_DOWNSAMPLING                                 = 400, //!< Chan
 
 //! @} XIMEA
 
+/** @name XIMEA Camera API
+*  @{
+*/
+
+//! Properties of cameras available through ARAVIS backend
+enum { CAP_PROP_ARAVIS_AUTOTRIGGER                              = 600 //!< Automatically trigger frame capture if camera is configured with software trigger
+};
+
+//! @} ARAVIS
+
 /** @name AVFoundation framework for iOS
     OS X Lion will have the same API
     @{
@@ -526,7 +540,8 @@ enum { CAP_PROP_INTELPERC_PROFILE_COUNT               = 11001,
 //! Intel Perceptual Streams
 enum { CAP_INTELPERC_DEPTH_GENERATOR = 1 << 29,
        CAP_INTELPERC_IMAGE_GENERATOR = 1 << 28,
-       CAP_INTELPERC_GENERATORS_MASK = CAP_INTELPERC_DEPTH_GENERATOR + CAP_INTELPERC_IMAGE_GENERATOR
+       CAP_INTELPERC_IR_GENERATOR    = 1 << 27,
+       CAP_INTELPERC_GENERATORS_MASK = CAP_INTELPERC_DEPTH_GENERATOR + CAP_INTELPERC_IMAGE_GENERATOR + CAP_INTELPERC_IR_GENERATOR
      };
 
 enum { CAP_INTELPERC_DEPTH_MAP              = 0, //!< Each pixel is a 16-bit integer. The value indicates the distance from an object to the camera's XY plane or the Cartesian depth.
@@ -579,6 +594,9 @@ enum { CAP_PROP_IMAGES_BASE = 18000,
 
 
 class IVideoCapture;
+//! @cond IGNORED
+namespace internal { class VideoCapturePrivateAccessor; }
+//! @endcond IGNORED
 
 /** @brief Class for video capturing from video files, image sequences or cameras.
 
@@ -614,14 +632,15 @@ public:
     @param filename it can be:
     - name of video file (eg. `video.avi`)
     - or image sequence (eg. `img_%02d.jpg`, which will read samples like `img_00.jpg, img_01.jpg, img_02.jpg, ...`)
-    - or URL of video stream (eg. `protocol://host:port/script_name?script_params|auth`).
+    - or URL of video stream (eg. `protocol://host:port/script_name?script_params|auth`)
+    - or GStreamer pipeline string in gst-launch tool format in case if GStreamer is used as backend
       Note that each video stream or IP camera feed has its own URL scheme. Please refer to the
       documentation of source stream to know the right URL.
     @param apiPreference preferred Capture API backends to use. Can be used to enforce a specific reader
     implementation if multiple are available: e.g. cv::CAP_FFMPEG or cv::CAP_IMAGES or cv::CAP_DSHOW.
     @sa The list of supported API backends cv::VideoCaptureAPIs
     */
-    CV_WRAP VideoCapture(const String& filename, int apiPreference = CAP_ANY);
+    CV_WRAP explicit VideoCapture(const String& filename, int apiPreference = CAP_ANY);
 
     /** @overload
     @brief  Opens a camera for video capturing
@@ -633,7 +652,7 @@ public:
 
     @sa The list of supported API backends cv::VideoCaptureAPIs
     */
-    CV_WRAP VideoCapture(int index, int apiPreference = CAP_ANY);
+    CV_WRAP explicit VideoCapture(int index, int apiPreference = CAP_ANY);
 
     /** @brief Default destructor
 
@@ -764,8 +783,8 @@ public:
 
     @note Reading / writing properties involves many layers. Some unexpected result might happens
     along this chain.
-    @code {.txt}
-    `VideoCapture -> API Backend -> Operating System -> Device Driver -> Device Hardware`
+    @code{.txt}
+    VideoCapture -> API Backend -> Operating System -> Device Driver -> Device Hardware
     @endcode
     The returned value might be different from what really used by the device or it could be encoded
     using device dependent rules (eg. steps or percentage). Effective behaviour depends from device
@@ -780,9 +799,42 @@ public:
      */
     CV_WRAP String getBackendName() const;
 
+    /** Switches exceptions mode
+     *
+     * methods raise exceptions if not successful instead of returning an error code
+     */
+    CV_WRAP void setExceptionMode(bool enable) { throwOnFail = enable; }
+
+    /// query if exception mode is active
+    CV_WRAP bool getExceptionMode() { return throwOnFail; }
+
+
+    /** @brief Wait for ready frames from VideoCapture.
+
+    @param streams input video streams
+    @param readyIndex stream indexes with grabbed frames (ready to use .retrieve() to fetch actual frame)
+    @param timeoutNs number of nanoseconds (0 - infinite)
+    @return `true` if streamReady is not empty
+
+    @throws Exception %Exception on stream errors (check .isOpened() to filter out malformed streams) or VideoCapture type is not supported
+
+    The primary use of the function is in multi-camera environments.
+    The method fills the ready state vector, grabbs video frame, if camera is ready.
+
+    After this call use VideoCapture::retrieve() to decode and fetch frame data.
+    */
+    static /*CV_WRAP*/
+    bool waitAny(
+            const std::vector<VideoCapture>& streams,
+            CV_OUT std::vector<int>& readyIndex,
+            int64 timeoutNs = 0);
+
 protected:
     Ptr<CvCapture> cap;
     Ptr<IVideoCapture> icap;
+    bool throwOnFail;
+
+    friend class internal::VideoCapturePrivateAccessor;
 };
 
 class IVideoWriter;

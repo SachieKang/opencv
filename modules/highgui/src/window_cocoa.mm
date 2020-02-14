@@ -267,7 +267,7 @@ CV_IMPL void cvResizeWindow( const char* name, int width, int height)
     CVWindow *window = cvGetWindow(name);
     if(window && ![window autosize]) {
         height += [window contentView].sliderHeight;
-        NSSize size = { width, height };
+        NSSize size = { (CGFloat)width, (CGFloat)height };
         [window setContentSize:size];
     }
     [localpool drain];
@@ -713,6 +713,68 @@ void cvSetModeWindow_COCOA( const char* name, double prop_value )
     __END__;
 }
 
+double cvGetPropTopmost_COCOA(const char* name)
+{
+    double    result = -1;
+    CVWindow* window = nil;
+
+    CV_FUNCNAME("cvGetPropTopmost_COCOA");
+
+    __BEGIN__;
+    if (name == NULL)
+    {
+        CV_ERROR(CV_StsNullPtr, "NULL name string");
+    }
+
+    window = cvGetWindow(name);
+    if (window == NULL)
+    {
+        CV_ERROR(CV_StsNullPtr, "NULL window");
+    }
+
+    result = (window.level == NSStatusWindowLevel) ? 1 : 0;
+
+    __END__;
+    return result;
+}
+
+void cvSetPropTopmost_COCOA( const char* name, const bool topmost )
+{
+    CVWindow *window = nil;
+    NSAutoreleasePool* localpool = nil;
+    CV_FUNCNAME( "cvSetPropTopmost_COCOA" );
+
+    __BEGIN__;
+    if( name == NULL )
+    {
+        CV_ERROR( CV_StsNullPtr, "NULL name string" );
+    }
+
+    window = cvGetWindow(name);
+    if ( window == NULL )
+    {
+        CV_ERROR( CV_StsNullPtr, "NULL window" );
+    }
+
+    if ([[window contentView] isInFullScreenMode])
+    {
+        EXIT;
+    }
+
+    localpool = [[NSAutoreleasePool alloc] init];
+    if (topmost)
+    {
+        [window makeKeyAndOrderFront:window.self];
+        [window setLevel:CGWindowLevelForKey(kCGMaximumWindowLevelKey)];
+    }
+    else
+    {
+        [window makeKeyAndOrderFront:nil];
+    }
+    [localpool drain];
+    __END__;
+}
+
 void cv::setWindowTitle(const String& winname, const String& title)
 {
     CVWindow *window = cvGetWindow(winname.c_str());
@@ -946,7 +1008,7 @@ static NSSize constrainAspectRatio(NSSize base, NSSize constraint) {
 
     if (bitmap) {
         cv::Mat dst(arrMat.rows, arrMat.cols, CV_8UC3, [bitmap bitmapData], [bitmap bytesPerRow]);
-        cv::cvtColor(arrMat, dst, cv::COLOR_BGR2RGB);
+        convertToShow(arrMat, dst);
     }
     else {
         // It's not guaranteed to like the bitsPerPixel:24, but this is a lot slower so we'd rather not do it
@@ -960,8 +1022,8 @@ static NSSize constrainAspectRatio(NSSize base, NSSize constraint) {
             colorSpaceName:NSDeviceRGBColorSpace
             bytesPerRow:(arrMat.cols * 4)
             bitsPerPixel:32];
-        cv::Mat dst(arrMat.rows, arrMat.cols, CV_8UC3, [bitmap bitmapData], [bitmap bytesPerRow]);
-        cv::cvtColor(arrMat, dst, cv::COLOR_BGR2RGBA);
+        cv::Mat dst(arrMat.rows, arrMat.cols, CV_8UC4, [bitmap bitmapData], [bitmap bytesPerRow]);
+        convertToShow(arrMat, dst);
     }
 
     if( image ) {

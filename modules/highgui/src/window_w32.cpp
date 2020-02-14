@@ -40,6 +40,9 @@
 //M*/
 
 #include "precomp.hpp"
+
+using namespace cv;
+
 #include <windowsx.h> // required for GET_X_LPARAM() and GET_Y_LPARAM() macros
 
 #if defined _WIN32
@@ -66,12 +69,13 @@
 #include <functional>
 #include "opencv2/highgui.hpp"
 #include <GL/gl.h>
+#include "opencv2/core/opengl.hpp"
 #endif
 
 static const char* trackbar_text =
 "                                                                                             ";
 
-#if defined _M_X64 || defined __x86_64
+#if defined _M_X64 || defined __x86_64 || defined _M_ARM64
 
 #define icvGetWindowLongPtr GetWindowLongPtr
 #define icvSetWindowLongPtr( hwnd, id, ptr ) SetWindowLongPtr( hwnd, id, (LONG_PTR)(ptr) )
@@ -550,6 +554,48 @@ void cvSetModeWindow_W32( const char* name, double prop_value)//Yannick Verdie
     __END__;
 }
 
+double cvGetPropTopmost_W32(const char* name)
+{
+    double result = -1;
+
+    CV_Assert(name);
+
+    CvWindow* window = icvFindWindowByName(name);
+    if (!window)
+        CV_Error(Error::StsNullPtr, "NULL window");
+
+    LONG style = GetWindowLongA(window->frame, GWL_EXSTYLE); // -20
+    if (!style)
+    {
+        std::ostringstream errorMsg;
+        errorMsg << "window(" << name << "): failed to retrieve extended window style using GetWindowLongA(); error code: " << GetLastError();
+        CV_Error(Error::StsError, errorMsg.str().c_str());
+    }
+
+    result = (style & WS_EX_TOPMOST) == WS_EX_TOPMOST;
+
+    return result;
+}
+
+void cvSetPropTopmost_W32(const char* name, const bool topmost)
+{
+    CV_Assert(name);
+
+    CvWindow* window = icvFindWindowByName(name);
+    if (!window)
+        CV_Error(Error::StsNullPtr, "NULL window");
+
+    HWND flag    = topmost ? HWND_TOPMOST : HWND_TOP;
+    BOOL success = SetWindowPos(window->frame, flag, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+    if (!success)
+    {
+        std::ostringstream errorMsg;
+        errorMsg << "window(" << name << "): error reported by SetWindowPos(" << (topmost ? "HWND_TOPMOST" : "HWND_TOP") << "), error code:  " << GetLastError();
+        CV_Error(Error::StsError, errorMsg.str().c_str());
+    }
+}
+
 void cv::setWindowTitle(const String& winname, const String& title)
 {
     CvWindow* window = icvFindWindowByName(winname.c_str());
@@ -638,6 +684,24 @@ double cvGetOpenGlProp_W32(const char* name)
     __END__;
 #endif
     CV_UNUSED(name);
+
+    return result;
+}
+
+double cvGetPropVisible_W32(const char* name)
+{
+    double result = -1;
+
+    CV_FUNCNAME( "cvGetPropVisible_W32" );
+
+    __BEGIN__;
+
+    if (!name)
+        CV_ERROR( CV_StsNullPtr, "NULL name string" );
+
+    result = (icvFindWindowByName( name ) != NULL);
+
+    __END__;
 
     return result;
 }
@@ -1126,20 +1190,20 @@ static void icvUpdateWindowPos( CvWindow* window )
         {
             RECT rmw, rw = icvCalcWindowRect(window );
             MoveWindow(window->hwnd, rw.left, rw.top,
-                rw.right - rw.left + 1, rw.bottom - rw.top + 1, FALSE);
+                rw.right - rw.left, rw.bottom - rw.top, FALSE);
             GetClientRect(window->hwnd, &rw);
             GetWindowRect(window->frame, &rmw);
             // Resize the mainhWnd window in order to make the bitmap fit into the child window
             MoveWindow(window->frame, rmw.left, rmw.top,
-                rmw.right - rmw.left + size.cx - rw.right + rw.left,
-                rmw.bottom  - rmw.top + size.cy - rw.bottom + rw.top, TRUE );
+                size.cx + (rmw.right - rmw.left) - (rw.right - rw.left),
+                size.cy + (rmw.bottom - rmw.top) - (rw.bottom - rw.top), TRUE );
         }
     }
 
     rect = icvCalcWindowRect(window);
     MoveWindow(window->hwnd, rect.left, rect.top,
-               rect.right - rect.left + 1,
-               rect.bottom - rect.top + 1, TRUE );
+               rect.right - rect.left,
+               rect.bottom - rect.top, TRUE );
 }
 
 CV_IMPL void
@@ -1154,7 +1218,6 @@ cvShowImage( const char* name, const CvArr* arr )
     int channels = 0;
     void* dst_ptr = 0;
     const int channels0 = 3;
-    int origin = 0;
     CvMat stub, *image;
     bool changed_size = false; // philipg
 
@@ -1170,9 +1233,6 @@ cvShowImage( const char* name, const CvArr* arr )
 
     if( !window || !arr )
         EXIT; // keep silence here.
-
-    if( CV_IS_IMAGE_HDR( arr ))
-        origin = ((IplImage*)arr)->origin;
 
     CV_CALL( image = cvGetMat( arr, &stub ));
 
@@ -1210,27 +1270,13 @@ cvShowImage( const char* name, const CvArr* arr )
     }
 
     {
-        cv::Mat src = cv::cvarrToMat(image);
         cv::Mat dst(size.cy, size.cx, CV_8UC3, dst_ptr, (size.cx * channels + 3) & -4);
-        if (src.channels() == 1)
-        {
-            cv::cvtColor(src, dst, cv::COLOR_GRAY2BGR);
-            cv::flip(dst, dst, 0);
-        }
-        else if (src.channels() == 4)
-        {
-            cv::cvtColor(src, dst, cv::COLOR_BGRA2BGR);
-            cv::flip(dst, dst, 0);
-        }
-        else
-        {
-            CV_Assert(src.channels() == 3);
-            cv::flip(src, dst, 0);
-        }
+        convertToShow(cv::cvarrToMat(image), dst, false);
         CV_Assert(dst.data == (uchar*)dst_ptr);
+        cv::flip(dst, dst, 0);
     }
 
-    // ony resize window if needed
+    // only resize window if needed
     if (changed_size)
         icvUpdateWindowPos(window);
     InvalidateRect(window->hwnd, 0, 0);
@@ -1263,18 +1309,18 @@ CV_IMPL void cvResizeWindow(const char* name, int width, int height )
     {
         rw = icvCalcWindowRect(window);
         MoveWindow(window->hwnd, rw.left, rw.top,
-            rw.right - rw.left + 1, rw.bottom - rw.top + 1, FALSE);
+            rw.right - rw.left, rw.bottom - rw.top, FALSE);
         GetClientRect(window->hwnd, &rw);
         GetWindowRect(window->frame, &rmw);
         // Resize the mainhWnd window in order to make the bitmap fit into the child window
         MoveWindow(window->frame, rmw.left, rmw.top,
-            rmw.right - rmw.left + width - rw.right + rw.left,
-            rmw.bottom  - rmw.top + height - rw.bottom + rw.top, TRUE);
+            width  + (rmw.right - rmw.left) - (rw.right - rw.left),
+            height + (rmw.bottom - rmw.top) - (rw.bottom - rw.top), TRUE);
     }
 
     rect = icvCalcWindowRect(window);
     MoveWindow(window->hwnd, rect.left, rect.top,
-        rect.right - rect.left + 1, rect.bottom - rect.top + 1, TRUE);
+        rect.right - rect.left, rect.bottom - rect.top, TRUE);
 
     __END__;
 }
@@ -1421,7 +1467,20 @@ MainWindowProc( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam )
           GetClientRect( window->hwnd, &rect );
 
           SIZE size = {0,0};
-          icvGetBitmapData( window, &size, 0, 0 );
+#ifdef HAVE_OPENGL
+          if (window->useGl)
+          {
+              cv::ogl::Texture2D* texObj = static_cast<cv::ogl::Texture2D*>(window->glDrawData);
+              size.cx = texObj->cols();
+              size.cy = texObj->rows();
+          }
+          else
+          {
+              icvGetBitmapData(window, &size, 0, 0);
+          }
+#else
+          icvGetBitmapData(window, &size, 0, 0);
+#endif
 
           window->on_mouse( event, pt.x*size.cx/MAX(rect.right - rect.left,1),
                                    pt.y*size.cy/MAX(rect.bottom - rect.top,1), flags,
@@ -1561,8 +1620,8 @@ static LRESULT CALLBACK HighGUIProc( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             RECT rect = icvCalcWindowRect(window);
             pos->x = rect.left;
             pos->y = rect.top;
-            pos->cx = rect.right - rect.left + 1;
-            pos->cy = rect.bottom - rect.top + 1;
+            pos->cx = rect.right - rect.left;
+            pos->cy = rect.bottom - rect.top;
         }
         break;
 
@@ -1615,7 +1674,21 @@ static LRESULT CALLBACK HighGUIProc( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                 SIZE size = {0, 0};
 
                 GetClientRect( window->hwnd, &rect );
+
+#ifdef HAVE_OPENGL
+                if (window->useGl)
+                {
+                    cv::ogl::Texture2D* texObj = static_cast<cv::ogl::Texture2D*>(window->glDrawData);
+                    size.cx = texObj->cols();
+                    size.cy = texObj->rows();
+                }
+                else
+                {
+                    icvGetBitmapData(window, &size, 0, 0);
+                }
+#else
                 icvGetBitmapData( window, &size, 0, 0 );
+#endif
 
                 window->on_mouse( event, pt.x*size.cx/MAX(rect.right - rect.left,1),
                                          pt.y*size.cy/MAX(rect.bottom - rect.top,1), flags,

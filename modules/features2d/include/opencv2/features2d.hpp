@@ -80,6 +80,10 @@ This section describes approaches based on local 2D features and used to categor
     -   (Python) An example using the features2D framework to perform object categorization can be
         found at opencv_source_code/samples/python/find_obj.py
 
+    @defgroup feature2d_hal Hardware Acceleration Layer
+    @{
+        @defgroup features2d_hal_interface Interface
+    @}
   @}
  */
 
@@ -285,6 +289,18 @@ public:
         const std::vector<int> &numberList, float dMax=5.85f, float dMin=8.2f,
         const std::vector<int>& indexChange=std::vector<int>());
     CV_WRAP virtual String getDefaultName() const CV_OVERRIDE;
+
+    /** @brief Set detection threshold.
+    @param threshold AGAST detection threshold score.
+    */
+    CV_WRAP virtual void setThreshold(int threshold) { CV_UNUSED(threshold); return; }
+    CV_WRAP virtual int getThreshold() const { return -1; }
+
+    /** @brief Set detection octaves.
+    @param octaves detection octaves. Use 0 to do single scale.
+    */
+    CV_WRAP virtual void setOctaves(int octaves) { CV_UNUSED(octaves); return; }
+    CV_WRAP virtual int getOctaves() const { return -1; }
 };
 
 /** @brief Class implementing the ORB (*oriented BRIEF*) keypoint detector and descriptor extractor
@@ -329,7 +345,7 @@ public:
     but it is a little faster to compute.
     @param patchSize size of the patch used by the oriented BRIEF descriptor. Of course, on smaller
     pyramid layers the perceived image area covered by a feature will be larger.
-    @param fastThreshold
+    @param fastThreshold the fast threshold
      */
     CV_WRAP static Ptr<ORB> create(int nfeatures=500, float scaleFactor=1.2f, int nlevels=8, int edgeThreshold=31,
         int firstLevel=0, int WTA_K=2, ORB::ScoreType scoreType=ORB::HARRIS_SCORE, int patchSize=31, int fastThreshold=20);
@@ -382,7 +398,7 @@ code which is distributed under GPL.
 class CV_EXPORTS_W MSER : public Feature2D
 {
 public:
-    /** @brief Full consturctor for %MSER detector
+    /** @brief Full constructor for %MSER detector
 
     @param _delta it compares \f$(size_{i}-size_{i-delta})/size_{i-delta}\f$
     @param _min_area prune the area which smaller than minArea
@@ -476,9 +492,9 @@ FastFeatureDetector::TYPE_5_8
 
 Detects corners using the FAST algorithm by @cite Rosten06 .
 
-@note In Python API, types are given as cv2.FAST_FEATURE_DETECTOR_TYPE_5_8,
-cv2.FAST_FEATURE_DETECTOR_TYPE_7_12 and cv2.FAST_FEATURE_DETECTOR_TYPE_9_16. For corner
-detection, use cv2.FAST.detect() method.
+@note In Python API, types are given as cv.FAST_FEATURE_DETECTOR_TYPE_5_8,
+cv.FAST_FEATURE_DETECTOR_TYPE_7_12 and cv.FAST_FEATURE_DETECTOR_TYPE_9_16. For corner
+detection, use cv.FAST.detect() method.
  */
 CV_EXPORTS void FAST( InputArray image, CV_OUT std::vector<KeyPoint>& keypoints,
                       int threshold, bool nonmaxSuppression, FastFeatureDetector::DetectorType type );
@@ -1212,9 +1228,9 @@ output image. See possible flags bit values below.
 DrawMatchesFlags. See details above in drawMatches .
 
 @note
-For Python API, flags are modified as cv2.DRAW_MATCHES_FLAGS_DEFAULT,
-cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS, cv2.DRAW_MATCHES_FLAGS_DRAW_OVER_OUTIMG,
-cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS
+For Python API, flags are modified as cv.DRAW_MATCHES_FLAGS_DEFAULT,
+cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS, cv.DRAW_MATCHES_FLAGS_DRAW_OVER_OUTIMG,
+cv.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS
  */
 CV_EXPORTS_W void drawKeypoints( InputArray image, const std::vector<KeyPoint>& keypoints, InputOutputArray outImage,
                                const Scalar& color=Scalar::all(-1), DrawMatchesFlags flags=DrawMatchesFlags::DEFAULT );
